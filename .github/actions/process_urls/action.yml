@@ -15,18 +15,19 @@ runs:
   steps:
     # Normalize ARTIFACT_KEY to basename without .yml
     - name: Normalize ARTIFACT_KEY
+      id: normalize
       shell: bash
       run: |
-        set -e
+        set -euo pipefail
         base="$(basename "${ARTIFACT_KEY}" .yml)"
-        echo "ARTIFACT_KEY_BASENAME=${base}" >> "$GITHUB_ENV"
+        echo "artifact_key_basename=${base}" >> "$GITHUB_OUTPUT"
         echo "Normalized ARTIFACT_KEY to: ${base}"
 
     # Download artifact into a deterministic folder
     - name: Download Presigned URL list
       uses: actions/download-artifact@v4
       with:
-        name: ${{ env.MACHINE }}_flat_build_${{ env.ARTIFACT_KEY_BASENAME }}_presigned_urls.json
+        name: ${{ env.MACHINE }}_flat_build_${{ steps.normalize.outputs.artifact_key_basename }}_presigned_urls.json
         path: ${{ github.workspace }}/_artifacts
 
     # Extract + find the JSON safely
