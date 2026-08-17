@@ -17,6 +17,18 @@ inputs:
     description: Mode of operation (upload/download)
     required: true
     default: single-upload
+  machine:
+    description: Yocto MACHINE name; part of the multi-upload artifact name
+    required: false
+    default: ''
+  build_type:
+    description: Build type (flat_build or sdk_build); part of the multi-upload artifact name
+    required: false
+    default: ''
+  artifact_key_basename:
+    description: KAS file basename without extension; part of the multi-upload artifact name
+    required: false
+    default: ''
 
 outputs:
   presigned_url:
@@ -42,7 +54,7 @@ runs:
             echo "Uploading files to S3 bucket..."
             first_line=true
             # Start the JSON object
-            echo "{" > ${{ github.workspace }}/presigned_urls.json
+            echo "{" > "${GITHUB_WORKSPACE}/presigned_urls.json"
             while IFS= read -r file; do
               if [ -f "$file" ]; then
                 echo "Uploading $file..."
@@ -54,17 +66,17 @@ runs:
                 if [ "$first_line" = true ]; then
                   first_line=false
                 else
-                  echo "," >> ${{ github.workspace }}/presigned_urls.json
+                  echo "," >> "${GITHUB_WORKSPACE}/presigned_urls.json"
                 fi
                 # Append the pre-signed URL to the file
-                echo " \"${filename}\": \"${presigned_url}\"" >> ${{ github.workspace }}/presigned_urls.json
+                echo " \"${filename}\": \"${presigned_url}\"" >> "${GITHUB_WORKSPACE}/presigned_urls.json"
                 echo "Pre-signed URL for $file: $presigned_url"
               else
                 echo "Warning: $file does not exist or is not a regular file."
               fi
             done < "${INPUTS_LOCAL_FILE}"
             # Close the JSON object
-            echo "}" >> ${{ github.workspace }}/presigned_urls.json
+            echo "}" >> "${GITHUB_WORKSPACE}/presigned_urls.json"
             ;;
           single-upload)
             echo "Uploading single file to S3 bucket..."
@@ -88,24 +100,37 @@ runs:
 
     # 🔧 Minimal addition: ensure the uploaded artifact file name matches the artifact name
     - name: Prepare artifact file with expected name
+      id: prepare
       if: ${{ inputs.mode == 'multi-upload' }}
       shell: bash
+      env:
+        MACHINE: ${{ inputs.machine }}
+        BUILD_TYPE: ${{ inputs.build_type }}
+        ARTIFACT_KEY_BASENAME: ${{ inputs.artifact_key_basename }}
       run: |
         set -euo pipefail
+        # Fail loudly rather than producing a name with a doubled underscore,
+        # which the Process URLs downloader would then never find.
+        : "${MACHINE:?multi-upload requires the machine input}"
+        : "${BUILD_TYPE:?multi-upload requires the build_type input}"
+        : "${ARTIFACT_KEY_BASENAME:?multi-upload requires the artifact_key_basename input}"
         EXPECTED_NAME="${MACHINE}_${BUILD_TYPE}_${ARTIFACT_KEY_BASENAME}_presigned_urls.json"
-        SRC="${{ github.workspace }}/presigned_urls.json"
-        DST="${{ github.workspace }}/${EXPECTED_NAME}"
+        SRC="${GITHUB_WORKSPACE}/presigned_urls.json"
+        DST="${GITHUB_WORKSPACE}/${EXPECTED_NAME}"
         cp -f "$SRC" "$DST"
-        echo "ARTIFACT_JSON_PATH=$DST" >> "$GITHUB_ENV"
+        {
+          echo "artifact_name=${EXPECTED_NAME}"
+          echo "artifact_json_path=${DST}"
+        } >> "$GITHUB_OUTPUT"
         echo "Prepared artifact JSON: $DST"
 
     - name: Upload artifacts
       if: ${{ inputs.mode == 'multi-upload' }}
       uses: actions/upload-artifact@v4
       with:
-        # Use ARTIFACT_KEY_BASENAME to match the downloader (Process URLs) expectation
-        name: ${{ env.MACHINE }}_${{ env.BUILD_TYPE }}_${{ env.ARTIFACT_KEY_BASENAME }}_presigned_urls.json
-        path: ${{ env.ARTIFACT_JSON_PATH }}
+        # artifact_key_basename matches the downloader (Process URLs) expectation
+        name: ${{ steps.prepare.outputs.artifact_name }}
+        path: ${{ steps.prepare.outputs.artifact_json_path }}
         compression-level: 0
         if-no-files-found: error
         retention-days: 1

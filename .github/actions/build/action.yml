@@ -46,47 +46,44 @@ runs:
   using: "composite"
   steps:
     - name: Initialize env (MACHINE, file list)
+      id: init
       shell: bash
       run: |
-        #!/bin/bash
-        set -e
-        echo "MACHINE=${INPUTS_MACHINE_NAME}" >> $GITHUB_ENV
+        set -euo pipefail
         KAS_BASE="$(basename "${INPUTS_KAS_FILE}")"
         ARTIFACT_KEY="${KAS_BASE%.*}"
-        echo "ARTIFACT_KEY=${ARTIFACT_KEY}" >> $GITHUB_ENV
-        echo "ARTIFACT_KEY_BASENAME=${ARTIFACT_KEY}" >> $GITHUB_ENV
-        filepath="${{ github.workspace }}/${INPUTS_MACHINE_NAME}_${INPUTS_BUILD_TYPE}_${ARTIFACT_KEY}_file_list.txt"
-        echo "filepath=${filepath}" >> $GITHUB_ENV
+        filepath="${GITHUB_WORKSPACE}/${INPUTS_MACHINE_NAME}_${INPUTS_BUILD_TYPE}_${ARTIFACT_KEY}_file_list.txt"
+        {
+          echo "artifact_key=${ARTIFACT_KEY}"
+          echo "filepath=${filepath}"
+        } >> "$GITHUB_OUTPUT"
         : > "$filepath"
       env:
         INPUTS_MACHINE_NAME: ${{ inputs.machine_name }}
         INPUTS_KAS_FILE: ${{ inputs.kas_file }}
         INPUTS_BUILD_TYPE: ${{ inputs.build_type }}
 
-    - name: Build ${{ env.MACHINE }}
+    - name: Build ${{ inputs.machine_name }}
       shell: bash
       run: |
-        #!/bin/bash
-        set -e
-        filepath="${{ github.workspace }}/${MACHINE}_${INPUTS_BUILD_TYPE}_${ARTIFACT_KEY}_file_list.txt"
-        echo "filepath=${filepath}" >> $GITHUB_ENV
-        touch $filepath
+        set -euo pipefail
+        touch "$FILEPATH"
         USER_ID=$(id -u)
         GROUP_ID=$(id -g)
         USER=$(whoami)
-        WORKSPACE=${{ github.workspace }}/..
+        WORKSPACE="${GITHUB_WORKSPACE}/.."
         USER_HOME="/home/$USER"
         echo "::group::$(printf '__________ %-100s' 'build' | tr ' ' _)"
         docker run \
           --rm \
-          --user $(id -u):$(id -g) \
-          -v ${WORKSPACE}:${USER_HOME}/workspace \
-          -w ${USER_HOME}/workspace \
+          --user "${USER_ID}:${GROUP_ID}" \
+          -v "${WORKSPACE}:${USER_HOME}/workspace" \
+          -w "${USER_HOME}/workspace" \
           --privileged \
-          --cpus=${INPUTS_DOCKER_CPUS} \
-          --memory=${INPUTS_DOCKER_MEMORY} \
+          --cpus="${INPUTS_DOCKER_CPUS}" \
+          --memory="${INPUTS_DOCKER_MEMORY}" \
           --ulimit nofile=1048576:1048576 \
-          ${INPUTS_DOCKER_IMAGE} \
+          "${INPUTS_DOCKER_IMAGE}" \
           bash -c "
             set -e
             kas shell ${INPUTS_KAS_FILE} -c '
@@ -99,7 +96,7 @@ runs:
           "
         echo "::endgroup::"
       env:
-        INPUTS_BUILD_TYPE: ${{ inputs.build_type }}
+        FILEPATH: ${{ steps.init.outputs.filepath }}
         INPUTS_DOCKER_CPUS: ${{ inputs.docker_cpus }}
         INPUTS_DOCKER_MEMORY: ${{ inputs.docker_memory }}
         INPUTS_DOCKER_IMAGE: ${{ inputs.docker_image }}
@@ -118,11 +115,10 @@ runs:
         KAS_FILE="${KAS_FILE##*/}"
         KAS_FILE="${KAS_FILE%.*}"
         IMAGE_NAME="${INPUTS_IMAGE_NAME}"
-        MACHINE=${MACHINE}
         
         cd ..
         BUILD_DIR=build
-        PUB_DIR=${{ github.workspace }}/pub/${MACHINE}/flat_build
+        PUB_DIR="${GITHUB_WORKSPACE}/pub/${MACHINE}/flat_build"
         mkdir -p "$PUB_DIR"
         
         cd "$BUILD_DIR/tmp/deploy/images/${IMAGE_NAME}"
@@ -132,20 +128,22 @@ runs:
           # For Raspberry Pi
           if [ -f "${IMAGE_NAME}-${MACHINE}.tar.bz2" ]; then
             cp "${IMAGE_NAME}-${MACHINE}.tar.bz2" "$PUB_DIR/${IMAGE_NAME}-${KAS_FILE}.tar.bz2"
-            echo "${PUB_DIR}/${IMAGE_NAME}-${KAS_FILE}.tar.bz2" >> ${filepath}
+            echo "${PUB_DIR}/${IMAGE_NAME}-${KAS_FILE}.tar.bz2" >> "$FILEPATH"
           
           fi
         else
           # For QCOM devices
           
           cp "qcom-multimedia-proprietary-image-${IMAGE_NAME}.rootfs.qcomflash.tar.gz" "$PUB_DIR/qcom-multimedia-proprietary-image-${KAS_FILE}.rootfs.qcomflash.tar.gz"
-          echo "${PUB_DIR}/qcom-multimedia-proprietary-image-${KAS_FILE}.rootfs.qcomflash.tar.gz" >> ${filepath}
+          echo "${PUB_DIR}/qcom-multimedia-proprietary-image-${KAS_FILE}.rootfs.qcomflash.tar.gz" >> "$FILEPATH"
 
         fi
         
         ls -larth "$PUB_DIR"
         echo "Build artifacts created in $PUB_DIR"
       env:
+        MACHINE: ${{ inputs.machine_name }}
+        FILEPATH: ${{ steps.init.outputs.filepath }}
         INPUTS_KAS_FILE: ${{ inputs.kas_file }}
         INPUTS_IMAGE_NAME: ${{ inputs.image_name }}
 
@@ -158,7 +156,6 @@ runs:
         KAS_FILE="${INPUTS_KAS_FILE}"
         KAS_FILE="${KAS_FILE##*/}"
         KAS_FILE="${KAS_FILE%.*}"
-        MACHINE="${MACHINE}"
         
         cd ..
         cd build/tmp/deploy/sdk/
@@ -180,26 +177,26 @@ runs:
           exit 1
         fi
         
-        PUB_DIR=${{ github.workspace }}/pub/${MACHINE}/sdk_build
-        mkdir -p $PUB_DIR
-        cp $sdk_file $PUB_DIR/sdk-${KAS_FILE}.sh
-        echo "${PUB_DIR}/sdk-${KAS_FILE}.sh" >> ${filepath}
-        ls -larth $PUB_DIR
+        PUB_DIR="${GITHUB_WORKSPACE}/pub/${MACHINE}/sdk_build"
+        mkdir -p "$PUB_DIR"
+        cp "$sdk_file" "$PUB_DIR/sdk-${KAS_FILE}.sh"
+        echo "${PUB_DIR}/sdk-${KAS_FILE}.sh" >> "$FILEPATH"
+        ls -larth "$PUB_DIR"
         echo "SDK artifacts created in $PUB_DIR"
       env:
+        MACHINE: ${{ inputs.machine_name }}
+        FILEPATH: ${{ steps.init.outputs.filepath }}
         INPUTS_KAS_FILE: ${{ inputs.kas_file }}
 
     - name: Upload artifacts
       uses: Audioreach/meta-audioreach/.github/actions/aws-s3-exchanger@master
       with:
         mode: multi-upload
-        local_file: ${{ env.filepath }}
+        local_file: ${{ steps.init.outputs.filepath }}
         s3_bucket: qli-prd-audior-gh-artifacts
-      env:
-        MACHINE: ${{ env.MACHINE }}
-        BUILD_TYPE: ${{ inputs.build_type }}
-        ARTIFACT_KEY: ${{ env.ARTIFACT_KEY }}
-        ARTIFACT_KEY_BASENAME: ${{ env.ARTIFACT_KEY_BASENAME }}
+        machine: ${{ inputs.machine_name }}
+        build_type: ${{ inputs.build_type }}
+        artifact_key_basename: ${{ steps.init.outputs.artifact_key }}
 
     - name: Update Summary
       shell: bash
@@ -212,6 +209,7 @@ runs:
         echo "- Build Type: ${INPUTS_BUILD_TYPE}" >> $GITHUB_STEP_SUMMARY
         echo "- Build Command: ${INPUTS_BUILD_COMMAND}" >> $GITHUB_STEP_SUMMARY
       env:
+        MACHINE: ${{ inputs.machine_name }}
         INPUTS_IMAGE_NAME: ${{ inputs.image_name }}
         INPUTS_KAS_FILE: ${{ inputs.kas_file }}
         INPUTS_BUILD_TYPE: ${{ inputs.build_type }}

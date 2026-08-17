@@ -52,6 +52,6 @@ jobs:
       - name: Cleanup Workspace
         if: always()
         run: |
-          rm -rf ${{ github.workspace }}/../build
+          rm -rf "${GITHUB_WORKSPACE}/../build"
           rm -rf pub
           echo "Workspace cleaned up."
