@@ -37,7 +37,7 @@ jobs:
       - id: filter
         shell: bash
         run: |
-          MATRIX='${{ needs.load_parameters.outputs.build_matrix }}'
+          MATRIX="${NEEDS_LOAD_PARAMETERS_OUTPUTS_BUILD_MATRIX}"
           echo "RAW build_matrix:"
           echo "$MATRIX"
           echo "Validating JSON..."
@@ -61,6 +61,8 @@ jobs:
           echo "$FILTERED" | jq .
           echo "$FILTERED" > test_matrix.json
           echo "test_matrix=$FILTERED" >> "$GITHUB_OUTPUT"
+        env:
+          NEEDS_LOAD_PARAMETERS_OUTPUTS_BUILD_MATRIX: ${{ needs.load_parameters.outputs.build_matrix }}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

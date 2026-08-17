@@ -137,7 +137,7 @@ runs:
         echo "| Selector | Machine Name | KAS File | KAS Basename | IMAGE_NAME| TEST_ENABLED |" >> "$GITHUB_STEP_SUMMARY"
         echo "|---------|--------------|----------|--------------|--------------|------------|" >> "$GITHUB_STEP_SUMMARY"
 
-        build_matrix='${{ steps.set-matrix.outputs.build_matrix }}'
+        build_matrix="${STEPS_SET_MATRIX_OUTPUTS_BUILD_MATRIX}"
 
         echo "$build_matrix" | jq -c '.[]' | while read -r entry; do
           selector=$(echo "$entry" | jq -r '.selector')
@@ -150,3 +150,5 @@ runs:
 
           echo "| ${selector} | ${machine_name} | ${kas_file} | ${kas_basename} | ${image_name}| ${testing_enabled} |" >> "$GITHUB_STEP_SUMMARY"
         done
+      env:
+        STEPS_SET_MATRIX_OUTPUTS_BUILD_MATRIX: ${{ steps.set-matrix.outputs.build_matrix }}
