@@ -1,6 +1,17 @@
 name: trigger_lava_on_success
 
-on:
+# `workflow_run` is required by design here: this job must run in the trusted
+# default-branch context to (a) read the build artifacts produced by the
+# (possibly fork-PR) pre_merge_build/post_merge_build run and (b) hold the
+# LAVATOKEN secret. It already applies the mitigations the audit exists to
+# encourage: minimal top-level permissions (contents/actions: read only), a
+# `github.event.workflow_run.conclusion == 'success'` guard, NO checkout or
+# execution of untrusted PR code, hash-pinned actions, and artifact content is
+# consumed strictly as data (parsed as JSON, never eval'd) before being handed
+# to the reusable test.yml workflow. The dangerous-triggers audit is
+# presence-based (it flags any workflow_run), so this reviewed exception is the
+# sanctioned way to clear the enterprise gate for a known-safe handler.
+on:  # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: ["pre_merge_build", "post_merge_build"]
     types:
